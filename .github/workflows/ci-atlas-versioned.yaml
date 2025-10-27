@@ -1,0 +1,59 @@
+name: Atlas Versioned Workflow
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: ariga/setup-atlas@v0
+        with:
+          cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+      - uses: ariga/atlas-action/migrate/lint@v1
+        with:
+          dir: 'file://migrations'
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
+          dir-name: 'clickhouse-demo'
+
+  push:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Start services
+        run: docker compose --env-file .env.dist up -d
+      - name: Load .env file into GitHub Env
+        run: |
+          set -a
+          source .env.dist
+          KEYS=$(grep -vE '^\s*#|^\s*$' .env.dist | cut -d'=' -f1)
+          for key in $KEYS; do
+            echo "$key=$(printenv $key)" >> $GITHUB_ENV
+          done
+      - run: env
+      - uses: ariga/setup-atlas@v0
+        with:
+          cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+      - uses: ariga/atlas-action/migrate/push@v1
+        with:
+          dir: 'file://migrations'
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
+          dir-name: 'clickhouse-demo'
+      - uses: ariga/atlas-action/migrate/apply@v1
+        with:
+          dir: 'file://migrations'
+          url: '${{ env.CLICKHOUSE_URL }}'

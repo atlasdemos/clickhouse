@@ -1,0 +1,69 @@
+name: Atlas Declarative Workflow
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  plan:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Start services
+        run: docker compose --env-file .env.dist up -d
+      - name: Load .env file into GitHub Env
+        run: |
+          source .env.dist
+          KEYS=$(grep -vE '^\s*#|^\s*$' .env.dist | cut -d'=' -f1)
+          for key in $KEYS; do
+            echo "$key=$(printenv $key)" >> $GITHUB_ENV
+          done
+      - uses: ariga/setup-atlas@v0
+        with:
+          cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+      - uses: ariga/atlas-action/schema/plan@v1
+        with:
+          env: demo
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
+
+  push:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Start services
+        run: docker compose --env-file .env.dist up -d
+      - name: Load .env file into GitHub Env
+        run: |
+          source .env.dist
+          KEYS=$(grep -vE '^\s*#|^\s*$' .env.dist | cut -d'=' -f1)
+          for key in $KEYS; do
+            echo "$key=$(printenv $key)" >> $GITHUB_ENV
+          done
+      - uses: ariga/setup-atlas@v0
+        with:
+          cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+      - uses: ariga/atlas-action/schema/plan/approve@v1
+        id: plan-approve
+        with:
+          env: demo
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
+      - uses: ariga/atlas-action/schema/push@v1
+        with:
+          env: demo
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
+      - uses: ariga/atlas-action/schema/apply@v1
+        with:
+          env: demo
+          dev-url: '${{ env.CLICKHOUSE_DEV_URL }}'
